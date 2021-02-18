@@ -1,0 +1,280 @@
+Usar Google Authenticator en Servidores Linux
+5 agosto, 2018 Armando Felipe Fuentes Denis Ciberseguridad, Servidores, Software Libre 1
+
+
+Print Friendly, PDF & EmailPDF
+Un factor de autenticación es una información única utilizada para demostrar que tiene los derechos para realizar una acción, como iniciar sesión en un sistema. Un canal de autenticación es la forma en que un sistema de autenticación entrega un factor al usuario o requiere que el usuario responda.
+Las contraseñas y los tokens de seguridad son ejemplos de factores de autenticación; las computadoras y los teléfonos son ejemplos de canales.
+
+SSH es uno de los servicios principales usados para la administración de redes y utiliza contraseñas para la autenticación de forma predeterminada, y la mayoría de las instrucciones de fortalecimiento de SSH recomiendan usar una clave SSH en su lugar. Sin embargo, esto sigue siendo solo un factor único. Si un mal actor ha comprometido su computadora, entonces pueden usar su clave para poner en peligro sus servidores también.
+
+En este tutorial, configuraremos la autenticación de múltiples factores para combatir eso. La autenticación de múltiples factores (MFA) requiere más de un factor para autenticarse o iniciar sesión.
+Esto significa que un mal actor tendría que comprometer varias cosas, como su computadora y su teléfono, para entrar. Los diferentes tipos de factores a menudo se resumen como:
+
+Algo que conoces, como una contraseña o una pregunta de seguridad
+Algo que tienes, como una aplicación autenticadora o token de seguridad
+Algo que eres, como tu huella digital o voz
+Un factor común es una aplicación OATH-TOTP, como Google Authenticator. OATH-TOTP (Contraseña de una sola vez basada en el tiempo de autenticación abierta) es un protocolo abierto que genera una contraseña de uso único, comúnmente un número de 6 dígitos que se recicla cada 30 segundos.
+
+Este artículo explicará cómo habilitar la autenticación SSH utilizando una aplicación OATH-TOTP además de una clave SSH. Iniciar sesión en su servidor a través de SSH requerirá dos factores en dos canales, lo que lo hace más seguro que una contraseña o clave SSH sola. Además, repasaremos algunos casos de uso adicionales para MFA y algunos consejos y trucos útiles.
+
+Paso 1 – Instalar PAM de Google
+En este paso, instalaremos y configuraremos el PAM de Google.
+
+PAM, que significa Pluggable Authentication Module, es una infraestructura de autenticación utilizada en sistemas Linux para autenticar a un usuario. Debido a que Google creó una aplicación OATH-TOTP, también crearon un PAM que genera TOTP y es totalmente compatible con cualquier aplicación OATH-TOTP, como Google Authenticator o Authy.
+
+Primero, actualice el caché de repositorio de Ubuntu.
+
+sudo apt-get update
+1
+sudo apt-get update
+Luego, instale el PAM.
+
+sudo apt-get install libpam-google-authenticator
+1
+sudo apt-get install libpam-google-authenticator
+Con el PAM instalado, usaremos una aplicación de ayuda que viene con el PAM para generar una clave TOTP para el usuario al que desea agregar un segundo factor. Esta clave se genera usuario por usuario, no en todo el sistema. Esto significa que cada usuario que quiera usar una aplicación de autenticación TOTP deberá iniciar sesión y ejecutar la aplicación auxiliar para obtener su propia clave; no puede simplemente ejecutarlo una vez para habilitarlo para todos.
+
+Ejecute en la terminal:
+
+google-authenticator
+1
+google-authenticator
+Después de ejecutar el comando, se le harán algunas preguntas. El primero pregunta si los tokens de autenticación deben estar basados en el tiempo.
+
+Este PAM permite tokens basados en tiempo o basados en secuencia. El uso de tokens secuenciales significa que el código comienza en un cierto punto y luego incrementa el código después de cada uso. Usar tokens basados en el tiempo significa que el código cambia aleatoriamente después de que transcurra cierto tiempo. Nos mantendremos basados en el tiempo porque eso es lo que anticipan las aplicaciones como Google Authenticator, así que responda y por si.
+
+Después de responder a esta pregunta, se desplazará una gran cantidad de salida, incluido un gran código QR. En este punto, use su aplicación de autenticación en su teléfono para escanear el código QR o escriba manualmente la clave secreta. Si el código QR es demasiado grande para escanear, puede usar la URL arriba del código QR para obtener una versión más pequeña. Una vez que se haya agregado, verá un código de seis dígitos que cambia cada 30 segundos en su aplicación.
+
+Las preguntas restantes le informan al PAM cómo funcionar. Los revisaremos uno por uno.
+
+Do you want me to update your «~/.google_authenticator» file (y/n) y
+
+Esto escribe la clave y las opciones en el archivo .google_authenticator. Si dices que no, el programa se cierra y no se escribe nada, lo que significa que el autenticador no funcionará.
+
+Do you want to disallow multiple uses of the same authentication
+token? This restricts you to one login about every 30s, but it increases
+your chances to notice or even prevent man-in-the-middle attacks (y/n) y
+
+Al responder afirmativamente aquí, está evitando un ataque de repetición haciendo que cada código caduque inmediatamente después de su uso. Esto evita que un atacante capture un código que acaba de utilizar e inicie sesión con él.
+
+By default, tokens are good for 30 seconds and in order to compensate for
+possible time-skew between the client and the server, we allow an extra
+token before and after the current time. If you experience problems with poor
+time synchronization, you can increase the window from its default
+size of 1:30min to about 4min. Do you want to do so (y/n) n
+
+Si responde sí aquí, permite hasta 8 códigos válidos en una ventana móvil de cuatro minutos. Al contestar no, lo limitas a 3 códigos válidos en una ventana rodante de 1:30 minutos. A menos que encuentre problemas con la ventana de 1:30 minutos, responder «no» es la opción más segura.
+
+If the computer that you are logging into isn’t hardened against brute-force
+login attempts, you can enable rate-limiting for the authentication module.
+By default, this limits attackers to no more than 3 login attempts every 30s.
+Do you want to enable rate-limiting (y/n) y
+
+La limitación de velocidad significa que un atacante remoto solo puede intentar una cierta cantidad de conjeturas antes de ser bloqueado. Si no ha configurado previamente la limitación de velocidad directamente en SSH, hacerlo ahora es una gran técnica de endurecimiento.
+
+Nota: Una vez que finalice esta configuración, si desea hacer una copia de seguridad de su clave secreta, puede copiar el archivo ~/.google-authenticator en una ubicación confiable. Desde allí, puede implementarlo en sistemas adicionales o volver a implementarlo después de una copia de seguridad, pues si se le rompe el móvil la salva del archivo de configuración es la única vía de acceder.
+
+Ahora que el PAM de Google está instalado y configurado, el siguiente paso es configurar SSH para usar su clave TOTP. Tendremos que informarle a SSH sobre el PAM y luego configurar el SSH para usarlo.
+
+Paso 2 – Configurando OpenSSH
+Para comenzar, abra el archivo de configuración sshd para editar usando nano o su editor de texto favorito.
+
+sudo nano /etc/pam.d/sshd 
+1
+sudo nano /etc/pam.d/sshd 
+Agregue la siguiente línea al final del archivo.
+
+/etc/pam.d/sshd
+. . .
+# Standard Un*x password updating.
+@include common-password
+auth required pam_google_authenticator.so nullok
+1
+2
+3
+4
+. . .
+# Standard Un*x password updating.
+@include common-password
+auth required pam_google_authenticator.so nullok
+La palabra nullok al final de la última línea le dice al PAM que este método de autenticación es opcional. Esto permite a los usuarios que no tienen un token OATH-TOTP registrarse aún usando su clave SSH. Una vez que todos los usuarios tienen un token OATH-TOTP, puede eliminar nullok de esta línea para hacer que MFA sea obligatorio.
+
+Guarde y cierre el archivo.
+
+A continuación, configuraremos SSH para admitir este tipo de autenticación. Abra el archivo de configuración SSH para editarlo.
+
+sudo nano /etc/ssh/sshd_config
+1
+sudo nano /etc/ssh/sshd_config
+Busque ChallengeResponseAuthentication y establezca su valor en yes. En el archivo /etc/ssh/sshd_config
+
+/etc/ssh/sshd_config
+. . .
+# Change to yes to enable challenge-response passwords (beware issues with
+# some PAM modules and threads)
+ChallengeResponseAuthentication yes
+. . .
+1
+2
+3
+4
+5
+. . .
+# Change to yes to enable challenge-response passwords (beware issues with
+# some PAM modules and threads)
+ChallengeResponseAuthentication yes
+. . .
+Guarde y cierre el archivo, luego reinicie SSH para volver a cargar los archivos de configuración. Reiniciar el servicio sshd no cerrará las conexiones abiertas, por lo que no correrá el riesgo de bloquearse con este comando.
+
+sudo systemctl restart sshd.service
+1
+sudo systemctl restart sshd.service
+Para probar que todo está funcionando hasta ahora, abra otra terminal e intente iniciar sesión a través de SSH. Si ya ha creado una llave SSH y la está utilizando, se dará cuenta de que no tiene que escribir la contraseña de su usuario o el código de verificación de MFA. Esto se debe a que una clave SSH anula todas las otras opciones de autenticación de manera predeterminada. De lo contrario, debería haber obtenido una contraseña y un código de verificación.
+
+A continuación, para habilitar una clave SSH como un factor y el código de verificación como un segundo, debemos indicarle a SSH qué factores usar y evitar que la clave SSH anule todos los demás tipos.
+Para los que tengan acceso el acceso ssh mediante key o llave deben hacer lo siguiente, de esta forma hasta ese momento el ssh cuando te conectes te pide el password y despues el codigo de verificación
+
+Paso 3: Hacer que la autenticación mediante llaveSSH tenga conocimiento de MFA
+Vuelva a abrir el archivo de configuración ssh.
+
+sudo nano /etc/ssh/sshd_config
+1
+sudo nano /etc/ssh/sshd_config
+Agregue la siguiente línea en la parte inferior del archivo. Esto le dice a SSH qué métodos de autenticación son necesarios. Esta línea le dice a SSH que necesitamos una clave SSH y una contraseña o un código de verificación (o los tres).
+
+/etc/ssh/sshd_config
+. . .
+UsePAM yes
+AuthenticationMethods publickey,password publickey,keyboard-interactive
+1
+2
+3
+. . .
+UsePAM yes
+AuthenticationMethods publickey,password publickey,keyboard-interactive
+Guarde y cierre el archivo.
+
+A continuación, abra el archivo de configuración PAM sshd nuevamente.
+
+sudo nano /etc/pam.d/sshd
+1
+sudo nano /etc/pam.d/sshd
+Encuentre la línea @include common-auth y coméntela añadiendo un carácter # como primer carácter en la línea. Esto le dice a PAM que no solicite una contraseña.
+
+/etc/pam.d/sshd
+. . .
+# Standard Un*x authentication.
+#@include common-auth
+. . .
+1
+2
+3
+4
+. . .
+# Standard Un*x authentication.
+#@include common-auth
+. . .
+Guarde y cierre el archivo, luego reinicie SSH.
+
+sudo systemctl restart sshd.service
+1
+sudo systemctl restart sshd.service
+Ahora intente iniciar sesión en el servidor nuevamente con una sesión diferente. A diferencia de la última vez, SSH debería solicitar su código de verificación. Al ingresar, se iniciará sesión. Aunque no vea ninguna indicación de que se usó su clave SSH, su intento de inicio de sesión utilizó dos factores. Si desea verificar, puede agregar -v (para verbose) después del comando SSH:
+
+Ejemplo de salida SSH
+
+ . .
+debug1: Authentications that can continue: publickey
+debug1: Next authentication method: publickey
+debug1: Offering RSA public key: /home/syscu/.ssh/id_rsa
+debug1: Server accepts key: pkalg rsa-sha2-512 blen 279
+Authenticated with partial success.
+debug1: Authentications that can continue: password,keyboard-interactive
+debug1: Next authentication method: keyboard-interactive
+Verification code:
+1
+2
+3
+4
+5
+6
+7
+8
+9
+ . .
+debug1: Authentications that can continue: publickey
+debug1: Next authentication method: publickey
+debug1: Offering RSA public key: /home/syscu/.ssh/id_rsa
+debug1: Server accepts key: pkalg rsa-sha2-512 blen 279
+Authenticated with partial success.
+debug1: Authentications that can continue: password,keyboard-interactive
+debug1: Next authentication method: keyboard-interactive
+Verification code:
+Hacia el final de la salida, verá dónde SSH usa su clave SSH y luego le pedirá el código de verificación. Ahora puede iniciar sesión a través de SSH con una clave SSH y una contraseña de un solo uso. Si desea aplicar los tres tipos de autenticación, puede seguir el siguiente paso.
+
+Paso 4 – Agregar un tercer factor (opcional)
+En el Paso 3, enumeramos los tipos de autenticación aprobados en el archivo sshd_config:
+
+publickey (clave SSH)
+password publickey (contraseña)
+keyboard-interactive (código de verificación)
+Aunque enumeramos tres factores diferentes, con las opciones que hemos elegido hasta ahora, solo permiten una clave SSH y el código de verificación. Si desea tener los tres factores (clave SSH, contraseña y código de verificación), un cambio rápido habilitará los tres.
+
+Abra el archivo de configuración PAM sshd.
+
+sudo nano /etc/pam.d/sshd
+1
+sudo nano /etc/pam.d/sshd
+Ubique la línea que comentó anteriormente, #@include common-auth, y descomente la línea eliminando el carácter #. Guarde y cierre el archivo. Ahora, una vez más, reinicie SSH.
+
+sudo systemctl restart sshd.service
+1
+sudo systemctl restart sshd.service
+Al habilitar la opción @include common-auth, PAM ahora solicitará una contraseña además de verificar una clave SSH y pedir un código de verificación, que teníamos trabajando previamente. Ahora podemos usar algo que sabemos (contraseña) y dos tipos diferentes de cosas que tenemos (clave SSH y código de verificación) en dos canales diferentes.
+
+Hasta ahora, este tutorial ha explicado cómo habilitar MFA con una clave SSH y una contraseña única de tiempo. Si esto es todo lo que necesita, puede terminar aquí. Sin embargo, esta no es la única forma de hacer autenticación de múltiples factores. A continuación hay un par de formas adicionales de usar este módulo PAM para autenticación de múltiples factores y algunos consejos y trucos para recuperación, uso automatizado y más.
+
+Consejo 1 – Recuperar el acceso
+Al igual que con cualquier sistema que endurezca y asegure, usted se vuelve responsable de administrar esa seguridad. En este caso, eso significa no perder su clave SSH o su clave secreta TOTP y asegurarse de tener acceso a su aplicación TOTP. Sin embargo, a veces suceden cosas, y puede perder el control de las claves o aplicaciones que necesita para ingresar.
+Perder una clave SSH o clave secreta TOTP
+
+Si pierde su clave SSH o clave secreta TOTP, la recuperación se puede dividir en un par de pasos. El primero es volver a entrar sin conocer el código de verificación y el segundo es encontrar la clave secreta o regenerarla para el inicio de sesión normal de MFA.
+
+De lo contrario, necesitarás un usuario administrativo que tenga acceso a sudo; asegúrese de no habilitar MFA para este usuario, pero use una clave SSH. Si usted u otro usuario pierde su clave secreta y no puede iniciar sesión, entonces el usuario administrativo puede iniciar sesión y ayudar a recuperar o regenerar la clave para cualquier usuario que use sudo.
+
+Una vez que haya iniciado sesión, hay dos maneras de ayudar a que el TOTP sea secreto:
+*Recuperar la clave existente
+*Generar una nueva clave
+
+En el directorio principal de cada usuario, la clave secreta y la configuración de Google Authenticator se guardan en ~/.google-authenticator. La primera línea de este archivo es una clave secreta. Una forma rápida de obtener la clave es ejecutar el siguiente comando, que muestra la primera línea del archivo google-authenticator (es decir, la clave secreta). Luego, toma esa clave secreta y tipeala manualmente en una aplicación TOTP.
+
+head -n 1 /home/syscu/.google_authenticator
+1
+head -n 1 /home/syscu/.google_authenticator
+Si hay una razón para no usar la clave existente (por ejemplo, si no puede compartir fácilmente la clave secreta con el usuario afectado de forma segura), puede eliminar directamente el archivo ~/.google-authenticator. Esto permitirá que el usuario vuelva a iniciar sesión con un solo factor, asumiendo que no ha aplicado MFA. Luego pueden ejecutar google-authenticator para generar una nueva clave.
+
+Consejo 2: automatizar la configuración con la gestión de configuración
+Muchos de nosotros sysadmin – administradores de sistemas usan herramientas de administración de configuración, como Puppet, Chef o Ansible, para administrar sus sistemas. Si desea utilizar un sistema como este para instalar la configuración de una clave secreta cuando se crea una nueva cuenta de usuario, existe un método para hacerlo.
+
+google-authenticator admite conmutadores de línea de comando para configurar todas las opciones en un solo comando no interactivo. Para ver todas las opciones, puede escribir google-authenticator –help. A continuación se muestra el comando que configuraría todo como se describe en el Paso 1:
+
+google-authenticator -t -d -f -r 3 -R 30 -W
+1
+google-authenticator -t -d -f -r 3 -R 30 -W
+Esto responde todas las preguntas que respondimos manualmente, las guarda en un archivo y luego muestra la clave secreta, el código QR y los códigos de recuperación. (Si agrega el indicador -q, entonces no habrá ningún resultado.) Si usa este comando de manera automatizada, asegúrese de poner para capturar la clave secreta y / o los códigos de recuperación y ponerlos a disposición del usuario.
+
+Consejo 3 – Forzar MFA para todos los usuarios
+Si desea forzar MFA para todos los usuarios incluso en el primer inicio de sesión, o si prefiere no confiar en que sus usuarios generen sus propias claves, existe una manera fácil de manejar esto. Simplemente puede usar el mismo archivo .google-authenticator para cada usuario, ya que no hay datos específicos del usuario almacenados en el archivo.
+
+Para hacer esto, después de que el archivo de configuración se crea inicialmente, un usuario con privilegios necesita copiar el archivo a la raíz de cada directorio de inicio y cambiar sus permisos al usuario apropiado. También puede copiar el archivo en /etc/skel/ para que se copie automáticamente en el directorio de inicio de un nuevo usuario al momento de la creación.
+
+Advertencia: esto puede ser un riesgo de seguridad porque todos comparten el mismo segundo factor. Esto significa que si se filtró, es como si cada usuario tuviese solo un factor. Toma esto en consideración si quieres usar este enfoque.
+
+Otro método para forzar la creación de la clave secreta de un usuario es usar un script bash que:
+
+1-Crea un token TOTP,
+2-Solicita que descarguen la aplicación Google Authenticator y escanee el código QR que se mostrará, y
+3-Ejecuta la aplicación google-authenticator para ellos después de verificar si el archivo .google-authenticator ya existe.
+
+Para asegurarse de que la secuencia de comandos se ejecuta cuando un usuario inicia sesión, puede ponerle el nombre .bash_login y colocarlo en la raíz de su directorio de inicio.
